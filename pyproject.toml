@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sweeper-cli"
+version = "1.0.0"
+authors = [
+  { name="Sovon", email="sovon@example.com" },
+]
+description = "🧹 The intelligent, zero-dependency, aesthetic folder organizer."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+keywords = ["cli", "folder-organizer", "downloads", "file-manager", "cleanup", "zero-dependency"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Environment :: Console",
+    "Topic :: Utilities",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/sovon1/sweeper"
+"Bug Tracker" = "https://github.com/sovon1/sweeper/issues"
+
+[project.scripts]
+sweeper = "sweeper:main"
+
+[tool.setuptools]
+py-modules = ["sweeper"]

@@ -1,0 +1,53 @@
+name: Build Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: sweeper-windows-amd64.exe
+            asset_name: sweeper-windows-amd64.exe
+          - os: macos-latest
+            artifact_name: sweeper
+            asset_name: sweeper-darwin-universal
+          - os: ubuntu-latest
+            artifact_name: sweeper
+            asset_name: sweeper-linux-amd64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Compile Standalone Binary
+        run: pyinstaller --onefile --name sweeper sweeper.py
+
+      - name: Rename Artifact
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            mv dist/sweeper.exe dist/${{ matrix.asset_name }}
+          else
+            mv dist/sweeper dist/${{ matrix.asset_name }}
+          fi
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/${{ matrix.asset_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
