@@ -141,10 +141,92 @@ DEFAULT_CATEGORIES = {
 
 PROTECTED_NAMES = {
     "desktop.ini", ".ds_store", "thumbs.db", ".git", ".gitignore",
-    ".sweeper_history.json", "sweeper.py", "run.ps1", "run.sh"
+    ".sweeper_history.json", ".sweeper.json", "sweeper.py", "run.ps1", "run.sh"
 }
 
 PROTECTED_EXTS = {".lnk", ".url"}
+
+# ==============================================================================
+# Configuration & Custom Rules (.sweeper.json)
+# ==============================================================================
+
+def load_config(target_dir: Path) -> Dict[str, Any]:
+    """Load optional user configuration from target folder or home directory."""
+    local_cfg = target_dir / ".sweeper.json"
+    global_cfg = Path.home() / ".sweeper.json"
+    cfg_path = local_cfg if local_cfg.exists() else (global_cfg if global_cfg.exists() else None)
+    if not cfg_path:
+        return {}
+    try:
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Warning: Failed to parse {cfg_path}: {e}")
+        return {}
+
+def init_config(target_dir: Path) -> Path:
+    """Generate a clean, documented .sweeper.json configuration template."""
+    cfg_path = target_dir / ".sweeper.json"
+    sample = {
+        "$schema": "https://raw.githubusercontent.com/sovon1/sweeper/main/schema.json",
+        "by_date": False,
+        "ignore": ["node_modules", "vendor", "*.tmp"],
+        "custom_categories": {
+            "Books & Comics": {
+                "icon": "📚",
+                "exts": [".epub", ".mobi", ".azw3", ".cbr", ".cbz"],
+                "dir_keywords": ["book", "comic", "manga"]
+            },
+            "Design & 3D": {
+                "icon": "🎨",
+                "exts": [".blend", ".obj", ".stl", ".fbx", ".fig", ".sketch"],
+                "dir_keywords": ["model", "3d", "render", "design"]
+            }
+        }
+    }
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump(sample, f, indent=2)
+    return cfg_path
+
+# ==============================================================================
+# Windows Context Menu Integration (Right-Click "Sweep with Sweeper")
+# ==============================================================================
+
+def manage_context_menu(install: bool = True) -> Tuple[bool, str]:
+    """Add or remove 'Sweep with Sweeper' in Windows File Explorer right-click menu."""
+    if platform.system() != "Windows":
+        return False, "Context menu integration is only available on Windows."
+    try:
+        import winreg
+        script_path = str(Path(__file__).resolve())
+        python_exe = sys.executable
+        # Command lines for clicking a directory vs clicking directory background
+        cmd_dir = f'"{python_exe}" "{script_path}" "%1"'
+        cmd_bg = f'"{python_exe}" "{script_path}" "%V"'
+
+        key_specs = [
+            (winreg.HKEY_CURRENT_USER, r"Software\Classes\Directory\shell\Sweeper", cmd_dir),
+            (winreg.HKEY_CURRENT_USER, r"Software\Classes\Directory\Background\shell\Sweeper", cmd_bg)
+        ]
+
+        if install:
+            for root_h, sub_path, cmd in key_specs:
+                with winreg.CreateKey(root_h, sub_path) as key:
+                    winreg.SetValueEx(key, "", 0, winreg.REG_SZ, "🧹 Sweep with Sweeper")
+                    winreg.SetValueEx(key, "Icon", 0, winreg.REG_SZ, "shell32.dll,31")
+                with winreg.CreateKey(root_h, sub_path + r"\command") as key:
+                    winreg.SetValueEx(key, "", 0, winreg.REG_SZ, cmd)
+            return True, "Successfully added '🧹 Sweep with Sweeper' to your right-click context menu!"
+        else:
+            for root_h, sub_path, _ in key_specs:
+                try:
+                    winreg.DeleteKey(root_h, sub_path + r"\command")
+                    winreg.DeleteKey(root_h, sub_path)
+                except FileNotFoundError:
+                    pass
+            return True, "Removed Sweeper from the right-click context menu."
+    except Exception as e:
+        return False, f"Failed to modify context menu registry: {e}"
 
 # ==============================================================================
 # OS Native Trash / Recycle Bin (Cross-Platform)
@@ -229,7 +311,22 @@ class Sweeper:
         """Set or change the target folder and reset cached stats."""
         self.target_dir = target_dir.resolve()
         self.history_file = self.target_dir / ".sweeper_history.json"
-        self.category_names = set(DEFAULT_CATEGORIES.keys()) | {"Other"}
+        
+        # Load user configuration
+        self.config = load_config(self.target_dir)
+        self.categories = dict(DEFAULT_CATEGORIES)
+        
+        # Merge custom categories from .sweeper.json
+        custom_cats = self.config.get("custom_categories", {})
+        for cname, cdata in custom_cats.items():
+            self.categories[cname] = {
+                "icon": cdata.get("icon", "📁"),
+                "exts": set(ext.lower() for ext in cdata.get("exts", [])),
+                "dir_keywords": [kw.lower() for kw in cdata.get("dir_keywords", [])]
+            }
+            
+        self.user_ignore = set(x.lower() for x in self.config.get("ignore", []))
+        self.category_names = set(self.categories.keys()) | {"Other"}
         self._size_cache = {}
 
     def is_protected(self, path: Path) -> bool:
@@ -243,6 +340,11 @@ class Sweeper:
             return True
         if name.startswith(".sweeper"):
             return True
+        for ign in self.user_ignore:
+            if ign.startswith("*") and name.endswith(ign[1:]):
+                return True
+            if ign == name:
+                return True
         return False
 
     def get_size(self, path: Path) -> int:
@@ -279,13 +381,13 @@ class Sweeper:
         name_lower = path.name.lower()
 
         if path.is_dir():
-            for cat, data in DEFAULT_CATEGORIES.items():
+            for cat, data in self.categories.items():
                 if any(kw in name_lower for kw in data["dir_keywords"]):
                     return cat
             return "Other"
 
         ext = path.suffix.lower()
-        for cat, data in DEFAULT_CATEGORIES.items():
+        for cat, data in self.categories.items():
             if ext in data["exts"]:
                 return cat
 
@@ -452,8 +554,11 @@ class Sweeper:
                 return candidate
             counter += 1
 
-    def execute(self, clean_clutter: bool = True, organize: bool = True, dry_run: bool = False, progress_callback: Optional[Any] = None) -> Dict[str, Any]:
+    def execute(self, clean_clutter: bool = True, organize: bool = True, dry_run: bool = False, by_date: Optional[bool] = None, progress_callback: Optional[Any] = None) -> Dict[str, Any]:
         """Execute the sweep operation with full transaction logging."""
+        if by_date is None:
+            by_date = self.config.get("by_date", False)
+
         clutter_items = []
         clutter_bytes = 0
         clutter_paths = set()
@@ -517,7 +622,16 @@ class Sweeper:
                 if progress_callback:
                     progress_callback(current_op, total_ops, f"Sorting {item.name}")
                 try:
-                    final_dest = self.get_safe_destination(cat_dir, item.name)
+                    target_parent = cat_dir
+                    if by_date and item.is_file():
+                        try:
+                            ym = time.strftime("%Y-%m", time.localtime(item.stat().st_mtime))
+                            target_parent = cat_dir / ym
+                            target_parent.mkdir(parents=True, exist_ok=True)
+                        except Exception:
+                            pass
+
+                    final_dest = self.get_safe_destination(target_parent, item.name)
                     sz = self.get_size(item)
                     shutil.move(str(item), str(final_dest))
                     moved_count += 1
@@ -808,6 +922,66 @@ def run_sweep(sweeper: Sweeper, clean: bool, organize: bool):
 # CLI Entrypoint
 # ==============================================================================
 
+def watch_folder(sweeper: Sweeper, by_date: bool = False):
+    """Background Watch Mode: quietly auto-sweeps completed downloads."""
+    print(banner())
+    print(f" {Style.GREEN}👁️  WATCH MODE ACTIVE{Style.RESET} on {Style.CYAN}{sweeper.target_dir}{Style.RESET}")
+    print(f" {Style.GRAY}Sweeper is quietly monitoring for completed downloads in the background.{Style.RESET}")
+    print(f" {Style.DIM}Press Ctrl+C anytime to stop.{Style.RESET}\n")
+
+    temp_exts = {".crdownload", ".tmp", ".part", ".download", ".opdownload"}
+    last_sizes = {}
+
+    try:
+        while True:
+            time.sleep(2.0)
+            try:
+                for entry in list(sweeper.target_dir.iterdir()):
+                    if sweeper.is_protected(entry):
+                        continue
+                    if entry.is_dir() and entry.name in sweeper.category_names:
+                        continue
+                    if entry.suffix.lower() in temp_exts:
+                        continue
+
+                    try:
+                        current_size = entry.stat().st_size
+                        mtime = entry.stat().st_mtime
+                    except Exception:
+                        continue
+
+                    entry_str = str(entry)
+                    if entry_str not in last_sizes:
+                        last_sizes[entry_str] = (current_size, time.time())
+                        continue
+
+                    prev_size, first_seen = last_sizes[entry_str]
+                    # File must be stable (size unchanged) for at least 2 seconds (download completed)
+                    if current_size == prev_size and (time.time() - first_seen) >= 2.0:
+                        cat = sweeper.classify(entry)
+                        target_parent = sweeper.target_dir / cat
+                        if by_date and entry.is_file():
+                            try:
+                                ym = time.strftime("%Y-%m", time.localtime(mtime))
+                                target_parent = target_parent / ym
+                            except Exception:
+                                pass
+
+                        target_parent.mkdir(parents=True, exist_ok=True)
+                        final_dest = sweeper.get_safe_destination(target_parent, entry.name)
+                        shutil.move(str(entry), str(final_dest))
+
+                        timestamp = time.strftime("%H:%M:%S")
+                        icon = sweeper.categories.get(cat, {}).get("icon", "📁")
+                        print(f" [{Style.DIM}{timestamp}{Style.RESET}] {icon} Auto-swept: {Style.BOLD}{entry.name}{Style.RESET} ➜ {cat}/")
+                        del last_sizes[entry_str]
+                    else:
+                        last_sizes[entry_str] = (current_size, first_seen)
+            except Exception:
+                pass
+    except KeyboardInterrupt:
+        print(f"\n\n {Style.GRAY}Stopped watch mode.{Style.RESET}\n")
+
 def main():
     parser = argparse.ArgumentParser(
         description="🧹 SWEEPER — The intelligent, zero-dependency folder organizer.",
@@ -818,10 +992,28 @@ def main():
     parser.add_argument("--undo", action="store_true", help="Undo the last sweep in the target folder")
     parser.add_argument("--clean-only", action="store_true", help="Only prune junk & duplicate iterations")
     parser.add_argument("--organize-only", action="store_true", help="Only categorize files without pruning")
+    parser.add_argument("--watch", action="store_true", help="Run in background watch mode to auto-sweep new downloads")
+    parser.add_argument("--by-date", action="store_true", help="Organize files into year-month subfolders (e.g. Images/2026-11/)")
+    parser.add_argument("--init-config", action="store_true", help="Generate a .sweeper.json configuration template")
+    parser.add_argument("--install-context-menu", action="store_true", help="Add 'Sweep with Sweeper' to Windows right-click menu")
+    parser.add_argument("--uninstall-context-menu", action="store_true", help="Remove 'Sweep with Sweeper' from Windows right-click menu")
     parser.add_argument("-y", "--yes", action="store_true", help="Non-interactive mode (auto confirm)")
     parser.add_argument("-v", "--version", action="version", version=f"sweeper {__version__}")
 
     args = parser.parse_args()
+
+    # Context menu install / uninstall
+    if args.install_context_menu:
+        ok, msg = manage_context_menu(install=True)
+        color = Style.GREEN if ok else Style.YELLOW
+        print(f"{color}{msg}{Style.RESET}")
+        sys.exit(0 if ok else 1)
+
+    if args.uninstall_context_menu:
+        ok, msg = manage_context_menu(install=False)
+        color = Style.GREEN if ok else Style.YELLOW
+        print(f"{color}{msg}{Style.RESET}")
+        sys.exit(0 if ok else 1)
 
     # Determine target directory
     if args.path:
@@ -829,11 +1021,22 @@ def main():
     else:
         target_dir = Path.home() / "Downloads"
 
+    # Init config template
+    if args.init_config:
+        cfg = init_config(target_dir)
+        print(f"{Style.GREEN}✓ Created configuration file at:{Style.RESET} {cfg}")
+        sys.exit(0)
+
     if not target_dir.exists():
         print(f"{Style.YELLOW}Error: Folder '{target_dir}' does not exist.{Style.RESET}")
         sys.exit(1)
 
     sweeper = Sweeper(target_dir)
+
+    # Watch Mode
+    if args.watch:
+        watch_folder(sweeper, by_date=args.by_date)
+        sys.exit(0)
 
     # Handle Undo
     if args.undo:
@@ -845,7 +1048,7 @@ def main():
     if args.dry_run or args.yes or args.clean_only or args.organize_only:
         clean = not args.organize_only
         org = not args.clean_only
-        res = sweeper.execute(clean_clutter=clean, organize=org, dry_run=args.dry_run)
+        res = sweeper.execute(clean_clutter=clean, organize=org, dry_run=args.dry_run, by_date=args.by_date)
         if args.dry_run:
             print(f"Dry run complete. Clutter: {res['clutter_count']} items ({format_bytes(res['clutter_bytes'])}).")
         else:

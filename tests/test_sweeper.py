@@ -108,5 +108,36 @@ class TestSweeper(unittest.TestCase):
         self.assertTrue((doc_dir / "notes_1.txt").exists())
         self.assertEqual((doc_dir / "notes_1.txt").read_text(), "new content")
 
+    def test_by_date_organization(self):
+        """Verify that --by-date organizes files into YYYY-MM subfolders."""
+        pic = self.test_dir / "holiday.jpg"
+        pic.write_text("photo data")
+
+        res = self.sweeper.execute(clean_clutter=False, organize=True, by_date=True)
+        self.assertEqual(res["moved_count"], 1)
+
+        # Should be inside Images/YYYY-MM/
+        img_dir = self.test_dir / "Images"
+        subdirs = list(img_dir.iterdir())
+        self.assertEqual(len(subdirs), 1)
+        self.assertTrue((subdirs[0] / "holiday.jpg").exists())
+
+    def test_custom_config_and_ignore(self):
+        """Verify custom categories and ignore list from .sweeper.json."""
+        config_file = self.test_dir / ".sweeper.json"
+        config_file.write_text("""{
+            "ignore": ["keep_this.pdf"],
+            "custom_categories": {
+                "3D Models": {
+                    "exts": [".blend", ".obj"]
+                }
+            }
+        }""")
+
+        # Re-initialize sweeper to load config
+        sweeper = Sweeper(self.test_dir)
+        self.assertTrue(sweeper.is_protected(self.test_dir / "keep_this.pdf"))
+        self.assertEqual(sweeper.classify(self.test_dir / "scene.blend"), "3D Models")
+
 if __name__ == "__main__":
     unittest.main()
