@@ -40,36 +40,26 @@ Categorize loose files, prune duplicate downloads, stash messy desktops for meet
 
 Run directly without cloning or manual setup:
 
-### 📦 Standalone Binaries (Zero Python Required)
+### ⚡ Instant One-Liner (Recommended)
 
-Download precompiled standalone binaries directly from [GitHub Releases](https://github.com/sovon1/sweeper/releases/latest):
+Run once — automatically configures the permanent `sweeper` CLI command into your PATH:
 
-| Platform | Executable | Architecture | Size | Direct Download |
-| :--- | :--- | :---: | :---: | :---: |
-| 🪟 **Windows** | `sweeper-windows-amd64.exe` | x86_64 | 11.2 MB | [**Download .exe**](https://github.com/sovon1/sweeper/releases/latest/download/sweeper-windows-amd64.exe) |
-| 🍏 **macOS** | `sweeper-darwin-universal` | Apple Silicon & Intel | 10.4 MB | [**Download Binary**](https://github.com/sovon1/sweeper/releases/latest/download/sweeper-darwin-universal) |
-| 🐧 **Linux** | `sweeper-linux-amd64` | x86_64 | 22.5 MB | [**Download Binary**](https://github.com/sovon1/sweeper/releases/latest/download/sweeper-linux-amd64) |
-
----
-
-### ⚡ Instant One-Liner Installers
-
-### Windows (PowerShell)
+#### Windows (PowerShell)
 ```powershell
 irm https://raw.githubusercontent.com/sovon1/sweeper/main/run.ps1 | iex
 ```
 
-### Windows (Command Prompt / CMD)
+#### Windows (Command Prompt / CMD)
 ```cmd
 curl -fsSL https://raw.githubusercontent.com/sovon1/sweeper/main/run.cmd -o %TEMP%\run.cmd && %TEMP%\run.cmd
 ```
 
-### macOS & Linux
+#### macOS & Linux
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sovon1/sweeper/main/run.sh | bash
 ```
 
-### Astral uv / Python
+#### Astral uv / Python
 ```bash
 # Run instantly with uv (zero install)
 uvx sweeper-cli
@@ -78,6 +68,18 @@ uvx sweeper-cli
 pip install sweeper-cli
 sweeper
 ```
+
+---
+
+### 📦 Standalone Binaries (Zero Python Required)
+
+Prefer manual downloads? Grab precompiled standalone executables directly from [GitHub Releases](https://github.com/sovon1/sweeper/releases/latest):
+
+| Platform | Executable | Architecture | Size | Direct Download |
+| :--- | :--- | :---: | :---: | :---: |
+| 🪟 **Windows** | `sweeper-windows-amd64.exe` | x86_64 | 11.2 MB | [**Download .exe**](https://github.com/sovon1/sweeper/releases/latest/download/sweeper-windows-amd64.exe) |
+| 🍏 **macOS** | `sweeper-darwin-universal` | Apple Silicon & Intel | 10.4 MB | [**Download Binary**](https://github.com/sovon1/sweeper/releases/latest/download/sweeper-darwin-universal) |
+| 🐧 **Linux** | `sweeper-linux-amd64` | x86_64 | 22.5 MB | [**Download Binary**](https://github.com/sovon1/sweeper/releases/latest/download/sweeper-linux-amd64) |
 
 ---
 
