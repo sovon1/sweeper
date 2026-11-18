@@ -40,6 +40,11 @@ Run directly without cloning or manual setup:
 irm https://raw.githubusercontent.com/sovon1/sweeper/main/run.ps1 | iex
 ```
 
+### Windows (Command Prompt / CMD)
+```cmd
+curl -fsSL https://raw.githubusercontent.com/sovon1/sweeper/main/run.cmd -o %TEMP%\run.cmd && %TEMP%\run.cmd
+```
+
 ### macOS & Linux
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sovon1/sweeper/main/run.sh | bash
