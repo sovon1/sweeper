@@ -7,10 +7,20 @@
 Categorize loose files, prune duplicate downloads, stash messy desktops for meetings, and monitor folders in the background.
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue?style=flat-square)](https://github.com/sovon1/sweeper/releases)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/sovon1/sweeper/release.yml?branch=main&style=flat-square&label=build)](https://github.com/sovon1/sweeper/actions)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square)](#architecture)
-[![Platform](https://img.shields.io/badge/platform-windows%20%7C%20macos%20%7C%20linux-lightgrey?style=flat-square)](#installation)
+[![Zero Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square)](#performance)
+[![Platform](https://img.shields.io/badge/platform-%F0%9F%AA%9F%20Windows%20%7C%20%F0%9F%8D%8F%20macOS%20%7C%20%F0%9F%90%A7%20Linux-lightgrey?style=flat-square)](#quickstart)
+
+<br/>
+
+<a href="#quickstart"><b>⚡ Quickstart</b></a> &nbsp;•&nbsp;
+<a href="#standalone-binaries-zero-python-required"><b>📦 Precompiled Binaries</b></a> &nbsp;•&nbsp;
+<a href="#core-capabilities"><b>✨ Features</b></a> &nbsp;•&nbsp;
+<a href="#configuration-sweeperjson"><b>⚙️ Config</b></a> &nbsp;•&nbsp;
+<a href="#safety-architecture"><b>🛡️ Safety</b></a> &nbsp;•&nbsp;
+<a href="#performance"><b>🚀 Performance</b></a>
 
 <br/>
 
@@ -29,6 +39,20 @@ Categorize loose files, prune duplicate downloads, stash messy desktops for meet
 ## Quickstart
 
 Run directly without cloning or manual setup:
+
+### 📦 Standalone Binaries (Zero Python Required)
+
+Download precompiled standalone binaries directly from [GitHub Releases](https://github.com/sovon1/sweeper/releases/latest):
+
+| Platform | Executable | Architecture | Size | Direct Download |
+| :--- | :--- | :---: | :---: | :---: |
+| 🪟 **Windows** | `sweeper-windows-amd64.exe` | x86_64 | 11.2 MB | [**Download .exe**](https://github.com/sovon1/sweeper/releases/latest/download/sweeper-windows-amd64.exe) |
+| 🍏 **macOS** | `sweeper-darwin-universal` | Apple Silicon & Intel | 10.4 MB | [**Download Binary**](https://github.com/sovon1/sweeper/releases/latest/download/sweeper-darwin-universal) |
+| 🐧 **Linux** | `sweeper-linux-amd64` | x86_64 | 22.5 MB | [**Download Binary**](https://github.com/sovon1/sweeper/releases/latest/download/sweeper-linux-amd64) |
+
+---
+
+### ⚡ Instant One-Liner Installers
 
 ### Windows (PowerShell)
 ```powershell
@@ -225,4 +249,4 @@ python -m unittest discover -s tests
 
 ## License
 
-Distributed under the [MIT License](LICENSE).
+Distributed under the [MIT License](https://opensource.org/licenses/MIT).
