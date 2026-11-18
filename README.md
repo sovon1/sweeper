@@ -1,6 +1,6 @@
 # 🧹 Sweeper
 
-> The lightweight, zero-dependency folder organizer with an aesthetic terminal UI, smart duplicate pruning, background watch mode, storage heatmaps, desktop stashing, and instant 1-click undo.
+> The lightweight, zero-dependency folder organizer with an aesthetic terminal UI, media intelligence engine, smart duplicate pruning, background watch mode, storage heatmaps, desktop stashing, and instant 1-click undo.
 
 ---
 
@@ -33,12 +33,19 @@ uvx sweeper-cli
 ## ✨ Features
 
 - **Intuitive Categorization:** Automatically organizes loose files into clean directories (`Documents`, `Images`, `Media`, `Archives`, `Code & Projects`, `Programs & Apps`).
+- **🎬 Media Intelligence Engine:**
+  - **Video vs. Audio Split:** Automatically routes videos to `Media/Videos/` and audio tracks to `Media/Audio & Music/`.
+  - **Movies & Shows Detection:** Automatically recognizes release tags (`1080p`, `720p`, `4K`, `2160p`, `WEB-DL`, `HDR`, `x265`, `S01E02`) ➜ `Media/Videos/Movies & Shows/`.
+  - **Tutorials & Courses:** Routes coding courses, masterclasses, and lectures ➜ `Media/Videos/Tutorials & Courses/`.
+  - **Screen Recordings & Clips:** Detects OBS, Zoom, Loom, and screen captures ➜ `Media/Videos/Screen Recordings/`.
+  - **Songs vs. Podcasts:** Separates music tracks (`Media/Audio & Music/Songs/`) from speech & podcasts (`Media/Audio & Music/Podcasts & Voice/`).
+  - **🧲 Subtitle Companion Pairing:** Pairs `.srt`, `.vtt`, `.sub` files with their matching video files so subtitles are never orphaned.
 - **🧠 Smart Semantic Sub-Tags:** Automatically detects file context and creates neat subfolders:
   - `invoice_may.pdf` ➜ `Documents/Invoices & Receipts/`
   - `resume_sovon.docx` ➜ `Documents/Resumes & CVs/`
   - `screenshot_12.png` ➜ `Images/Screenshots/`
   - `wallpaper_4k.jpg` ➜ `Images/Wallpapers/`
-- **📊 Storage Heatmap & Space Hogs (`--heatmap`):** Beautiful ASCII distribution bar charts showing space allocation by category and listing your Top 10 Largest Space Hogs.
+- **📊 Storage Heatmap & Space Hogs (`--heatmap`):** Beautiful ASCII distribution bar charts showing space allocation by category and listing your Top 10 Largest Space Hogs with Media Intelligence breakdown.
 - **🔍 Content-Hash De-duplication (`--find-duplicates`):** Detects 100% byte-for-byte identical files even when their filenames are completely different.
 - **💼 Presentation / Meeting Stash (`--stash` & `--unstash`):** Need to share your screen or give a presentation? Sweeper sweeps your messy desktop into a neat `Stash/` folder in 0.1s. Run `sweeper --unstash` to put everything back after the call!
 - **👁️ Background Watch Mode (`--watch`):** Keeps your Downloads folder clean permanently. Sweeper monitors in the background and auto-sorts new downloads as soon as they complete.
@@ -103,7 +110,7 @@ Example `.sweeper.json`:
 
 ## 🧪 Testing
 
-Sweeper includes an automated test suite covering classification, duplicate clustering, content-hash matching, presentation stash, date sub-sorting, and atomic undo:
+Sweeper includes an automated test suite covering classification, duplicate clustering, content-hash matching, media companion pairing, presentation stash, date sub-sorting, and atomic undo:
 
 ```bash
 python -m unittest discover -s tests

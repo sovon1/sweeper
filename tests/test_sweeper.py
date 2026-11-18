@@ -171,5 +171,39 @@ class TestSweeper(unittest.TestCase):
         self.assertEqual(len(dup_sets[0][1]), 1)
         self.assertEqual(dup_sets[0][1][0].name, "totally_different_name.png")
 
+    def test_media_intelligence_and_subtitles(self):
+        """Verify video/audio routing and subtitle companion pairing."""
+        # 1. Movie + matching Subtitle
+        movie = self.test_dir / "Dune_Part_Two_1080p.mkv"
+        movie.write_text("movie data")
+        sub = self.test_dir / "Dune_Part_Two_1080p.srt"
+        sub.write_text("1\n00:00:01 --> 00:00:04\nSubtitles")
+
+        # 2. Tutorial video
+        tutorial = self.test_dir / "React_Full_Course_Tutorial.mp4"
+        tutorial.write_text("tutorial data")
+
+        # 3. Audio song
+        song = self.test_dir / "acoustic_music_track.mp3"
+        song.write_text("audio data")
+
+        sweeper = Sweeper(self.test_dir)
+        res = sweeper.execute(clean_clutter=False, organize=True)
+        self.assertEqual(res["moved_count"], 4)
+
+        # Verify movie and subtitle paired into Media/Videos/Movies & Shows/
+        movie_dest = self.test_dir / "Media" / "Videos" / "Movies & Shows" / "Dune_Part_Two_1080p.mkv"
+        sub_dest = self.test_dir / "Media" / "Videos" / "Movies & Shows" / "Dune_Part_Two_1080p.srt"
+        self.assertTrue(movie_dest.exists())
+        self.assertTrue(sub_dest.exists())
+
+        # Verify tutorial
+        tut_dest = self.test_dir / "Media" / "Videos" / "Tutorials & Courses" / "React_Full_Course_Tutorial.mp4"
+        self.assertTrue(tut_dest.exists())
+
+        # Verify audio song
+        song_dest = self.test_dir / "Media" / "Audio & Music" / "Songs" / "acoustic_music_track.mp3"
+        self.assertTrue(song_dest.exists())
+
 if __name__ == "__main__":
     unittest.main()

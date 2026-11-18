@@ -140,6 +140,12 @@ DEFAULT_CATEGORIES = {
     }
 }
 
+VIDEO_EXTS = {".mp4", ".mkv", ".mov", ".webm", ".avi", ".wmv", ".flv", ".m4v", ".ts"}
+AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".opus", ".aac", ".wma", ".aiff"}
+SUBTITLE_EXTS = {".srt", ".vtt", ".sub", ".ass", ".ssa", ".smi"}
+
+DEFAULT_CATEGORIES["Media"]["exts"] = VIDEO_EXTS | AUDIO_EXTS | SUBTITLE_EXTS
+
 SMART_SUBTAGS = {
     "Documents": [
         (["invoice", "receipt", "bill", "tax", "statement", "payment", "salary"], "Invoices & Receipts"),
@@ -153,16 +159,67 @@ SMART_SUBTAGS = {
         (["wallpaper", "background", "1920x", "4k", "1080p"], "Wallpapers"),
         (["logo", "icon", "vector", "seeklogo", "badge"], "Logos & Icons"),
         (["diagram", "chart", "flowchart", "mockup", "wireframe"], "Diagrams & Mockups")
-    ],
-    "Media": [
-        (["music", "song", "audio", "track", "album", "remix"], "Music"),
-        (["course", "tutorial", "lesson", "crud", "how to"], "Tutorials & Courses"),
-        (["movie", "film", "episode", "season", "s01", "1080p", "720p"], "Movies & Shows")
     ]
 }
 
-def get_smart_subtag(cat: str, filename: str) -> Optional[str]:
+def get_media_subtag(filename: str, target_dir: Optional[Path] = None) -> str:
+    """Intelligent media router for Videos, Audio, and Subtitle companion pairing."""
+    name_lower = filename.lower()
+    ext = Path(filename).suffix.lower()
+
+    # 1. Subtitle Companion Pairing
+    if ext in SUBTITLE_EXTS:
+        stem = Path(filename).stem
+        if target_dir:
+            for v_ext in VIDEO_EXTS:
+                if (target_dir / (stem + v_ext)).exists():
+                    return get_media_subtag(stem + v_ext, target_dir)
+                # Check if video was already routed to Media
+                media_dir = target_dir / "Media"
+                if media_dir.exists():
+                    found = list(media_dir.rglob(stem + v_ext))
+                    if found:
+                        return get_media_subtag(found[0].name, target_dir)
+        return "Videos/Subtitles"
+
+    # 2. Videos
+    if ext in VIDEO_EXTS:
+        # Movies & Series regex pattern
+        movie_pattern = re.compile(r"(1080p|720p|2160p|4k|web-dl|webrip|bluray|x264|x265|hevc|hdr|s\d{1,2}e\d{1,2}|yts|torrentbd)", re.I)
+        if movie_pattern.search(name_lower) or any(k in name_lower for k in ["movie", "film", "episode", "season"]):
+            return "Videos/Movies & Shows"
+
+        # Courses & Tutorials
+        if any(k in name_lower for k in ["course", "tutorial", "lesson", "crud", "masterclass", "full-stack", "lecture", "guide", "workshop", "how to"]):
+            return "Videos/Tutorials & Courses"
+
+        # Screen Recordings & Meetings
+        if any(k in name_lower for k in ["screen recording", "screencast", "zoom", "loom", "obs", "bandicam", "clip", "meeting"]):
+            return "Videos/Screen Recordings"
+
+        # Mobile clips & shorts
+        if any(k in name_lower for k in ["vid_", "wa00", "shorts", "tiktok", "reel"]):
+            return "Videos/Mobile & Clips"
+
+        return "Videos"
+
+    # 3. Audio & Music
+    if ext in AUDIO_EXTS:
+        if any(k in name_lower for k in ["podcast", "voice", "speech", "interview", "audioclip", "recording", "mic"]):
+            return "Audio & Music/Podcasts & Voice"
+        if any(k in name_lower for k in ["audiobook", "audio_book", "chapter", "narrated"]):
+            return "Audio & Music/Audiobooks"
+        if any(k in name_lower for k in ["song", "track", "music", "remix", "feat", "album", "soundtrack", "audio", "acoustic"]):
+            return "Audio & Music/Songs"
+        return "Audio & Music"
+
+    return "Media"
+
+def get_smart_subtag(cat: str, filename: str, target_dir: Optional[Path] = None) -> Optional[str]:
     """Smart heuristic semantic sub-tagging based on filename patterns."""
+    if cat == "Media":
+        return get_media_subtag(filename, target_dir)
+
     name_lower = filename.lower()
     rules = SMART_SUBTAGS.get(cat, [])
     for keywords, subfolder in rules:
@@ -654,7 +711,7 @@ class Sweeper:
                     progress_callback(current_op, total_ops, f"Sorting {item.name}")
                 try:
                     target_parent = cat_dir
-                    subtag = get_smart_subtag(cat, item.name) if item.is_file() else None
+                    subtag = get_smart_subtag(cat, item.name, self.target_dir) if item.is_file() else None
                     if subtag:
                         target_parent = target_parent / subtag
 
@@ -983,6 +1040,22 @@ def render_heatmap(sweeper: Sweeper):
         icon = "📁" if f.is_dir() else "📄"
         display_name = (f.name[:38] + "...") if len(f.name) > 40 else f.name
         print(f"   {Style.YELLOW}{idx:>2}.{Style.RESET} {icon} {display_name:<42} {Style.BOLD}{format_bytes(sz):>9}{Style.RESET}")
+
+    # Media breakdown
+    media_items = [
+        (f, sz) for f, sz in item_sizes
+        if f.is_file() and f.suffix.lower() in (VIDEO_EXTS | AUDIO_EXTS | SUBTITLE_EXTS)
+    ]
+    if media_items:
+        print(f"\n {Style.BOLD}🎬 Media Intelligence Breakdown:{Style.RESET}")
+        media_types = defaultdict(lambda: {"count": 0, "size": 0})
+        for f, sz in media_items:
+            sub = get_media_subtag(f.name, sweeper.target_dir)
+            media_types[sub]["count"] += 1
+            media_types[sub]["size"] += sz
+        for sub, data in sorted(media_types.items(), key=lambda x: x[1]["size"], reverse=True):
+            print(f"   • {sub:<32}: {Style.BOLD}{data['count']:>2}{Style.RESET} files ({format_bytes(data['size'])})")
+
     print()
 
 def chunk_hash(path: Path) -> Optional[str]:
@@ -1318,6 +1391,10 @@ def watch_folder(sweeper: Sweeper, by_date: bool = False):
                     if current_size == prev_size and (time.time() - first_seen) >= 2.0:
                         cat = sweeper.classify(entry)
                         target_parent = sweeper.target_dir / cat
+                        subtag = get_smart_subtag(cat, entry.name, sweeper.target_dir) if entry.is_file() else None
+                        if subtag:
+                            target_parent = target_parent / subtag
+
                         if by_date and entry.is_file():
                             try:
                                 ym = time.strftime("%Y-%m", time.localtime(mtime))
