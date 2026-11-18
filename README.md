@@ -14,14 +14,9 @@ Categorize loose files, prune duplicate downloads, stash messy desktops for meet
 
 <br/>
 
-```
-   ____                                   
-  / ___|_      _____  ___ _ __   ___ _ __ 
-  \___ \ \ /\ / / _ \/ _ \ '_ \ / _ \ '__|
-   ___) \ V  V /  __/  __/ |_) |  __/ |   
-  |____/ \_/\_/ \___|\___| .__/ \___|_|   
-                         |_|   v1.0.0
-```
+<img src="assets/banner.svg" alt="sweeper banner" width="480" />
+
+<br/>
 
 </div>
 

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 146" width="500" height="146">
+  <defs>
+    <linearGradient id="sweeper-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#a78bfa" />
+      <stop offset="100%" stop-color="#f472b6" />
+    </linearGradient>
+  </defs>
+  <style>
+    .ascii {
+      font-family: 'Consolas', 'Courier New', 'Fira Code', monospace;
+      font-size: 14px;
+      font-weight: 700;
+      fill: url(#sweeper-grad);
+      white-space: pre;
+    }
+    .tagline {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+      fill: #94a3b8;
+    }
+  </style>
+  <text x="250" y="22" text-anchor="middle" class="ascii">   ____                                   </text>
+  <text x="250" y="40" text-anchor="middle" class="ascii">  / ___|_      _____  ___ _ __   ___ _ __ </text>
+  <text x="250" y="58" text-anchor="middle" class="ascii">  \___ \ \ /\ / / _ \/ _ \ '_ \ / _ \ '__|</text>
+  <text x="250" y="76" text-anchor="middle" class="ascii">   ___) \ V  V /  __/  __/ |_) |  __/ |   </text>
+  <text x="250" y="94" text-anchor="middle" class="ascii">  |____/ \_/\_/ \___|\___| .__/ \___|_|   </text>
+  <text x="250" y="112" text-anchor="middle" class="ascii">                         |_|   v1.0.0 ✨  </text>
+  <text x="250" y="136" text-anchor="middle" class="tagline">The intelligent, zero-dependency folder organizer</text>
+</svg>
