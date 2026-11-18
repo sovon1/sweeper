@@ -414,7 +414,7 @@ class Sweeper:
                 return candidate
             counter += 1
 
-    def execute(self, clean_clutter: bool = True, organize: bool = True, dry_run: bool = False) -> Dict[str, Any]:
+    def execute(self, clean_clutter: bool = True, organize: bool = True, dry_run: bool = False, progress_callback: Optional[Any] = None) -> Dict[str, Any]:
         """Execute the sweep operation with full transaction logging."""
         clutter_items = []
         clutter_bytes = 0
@@ -436,6 +436,9 @@ class Sweeper:
                 "organized_counts": {k: len(v) for k, v in org_plan.items()}
             }
 
+        total_ops = (len(clutter_items) if clean_clutter else 0) + (sum(len(v) for v in org_plan.values()) if organize else 0)
+        current_op = 0
+
         transaction = {
             "timestamp": time.time(),
             "time_str": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -449,6 +452,9 @@ class Sweeper:
         for c in clutter_items:
             path = c["path"]
             sz = c["size"]
+            current_op += 1
+            if progress_callback:
+                progress_callback(current_op, total_ops, f"Recycling {path.name}")
             try:
                 if send_to_trash(path):
                     recycled_count += 1
@@ -469,6 +475,9 @@ class Sweeper:
             cat_dir.mkdir(exist_ok=True)
 
             for item in items:
+                current_op += 1
+                if progress_callback:
+                    progress_callback(current_op, total_ops, f"Sorting {item.name}")
                 try:
                     final_dest = self.get_safe_destination(cat_dir, item.name)
                     sz = self.get_size(item)
@@ -575,10 +584,35 @@ def format_bytes(b: int) -> str:
     else:
         return f"{b / (1024*1024*1024):.2f} GB"
 
+def animate_scan():
+    """Cute spinning animation while scanning."""
+    frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    for i in range(10):
+        frame = frames[i % len(frames)]
+        sys.stdout.write(f"\r {Style.PINK}{frame}{Style.RESET} {Style.CYAN}Scanning folder structure...{Style.RESET} 🧹")
+        sys.stdout.flush()
+        time.sleep(0.02)
+    sys.stdout.write("\r" + " " * 45 + "\r")
+    sys.stdout.flush()
+
+def render_progress_bar(current: int, total: int, item_name: str = "", width: int = 24):
+    """Smooth animated progress bar with current item preview."""
+    pct = (current / total) if total > 0 else 1.0
+    filled = int(width * pct)
+    bar = f"{Style.CYAN}{'█' * filled}{Style.DIM}{'░' * (width - filled)}{Style.RESET}"
+    pct_str = f"{int(pct * 100)}%"
+    name_truncated = (item_name[:22] + "...") if len(item_name) > 25 else item_name
+    sys.stdout.write(f"\r {Style.PINK}🧹 Sweeping{Style.RESET} [{bar}] {pct_str:>4} ({current}/{total}) {Style.GRAY}{name_truncated:<25}{Style.RESET}")
+    sys.stdout.flush()
+    # Micro sleep for visual smoothness when running very fast
+    time.sleep(0.01)
+
 def render_interactive(sweeper: Sweeper):
     print(banner())
     target = sweeper.target_dir
     print(f" {Style.BOLD}📂 Target Folder:{Style.RESET} {Style.CYAN}{target}{Style.RESET}\n")
+
+    animate_scan()
 
     # Fast scan
     items = [f for f in target.iterdir() if not sweeper.is_protected(f)]
@@ -607,10 +641,13 @@ def render_interactive(sweeper: Sweeper):
         print(f"   {Style.GRAY}No redundant clutter or duplicate iterations found.{Style.RESET}\n")
 
     print(f" {Style.BOLD}{Style.CYAN}📁 Categorization Plan:{Style.RESET}")
-    for cat, file_list in sorted(plan.items(), key=lambda x: len(x[1]), reverse=True):
-        icon = DEFAULT_CATEGORIES.get(cat, {}).get("icon", "📁")
-        cat_sz = sum(sweeper.get_size(f) for f in file_list)
-        print(f"   {icon} {cat:<18}: {Style.BOLD}{len(file_list):>3}{Style.RESET} items ({format_bytes(cat_sz)})")
+    if plan:
+        for cat, file_list in sorted(plan.items(), key=lambda x: len(x[1]), reverse=True):
+            icon = DEFAULT_CATEGORIES.get(cat, {}).get("icon", "📁")
+            cat_sz = sum(sweeper.get_size(f) for f in file_list)
+            print(f"   {icon} {cat:<18}: {Style.BOLD}{len(file_list):>3}{Style.RESET} items ({format_bytes(cat_sz)})")
+    else:
+        print(f"   {Style.GRAY}No unorganized loose files found.{Style.RESET}")
     print()
 
     print(f"{Style.DIM}─────────────────────────────────────────────────────────────{Style.RESET}")
@@ -628,12 +665,12 @@ def render_interactive(sweeper: Sweeper):
         print("\nAborted.")
         sys.exit(0)
 
-    if choice in {"1", ""}:
-        run_sweep(sweeper, clean=True, organize=True)
+    if choice in {"1", "clean", "organize"}:
+        confirm_and_run(sweeper, clean=True, organize=True, desc="clean clutter and organize loose files")
     elif choice == "2":
-        run_sweep(sweeper, clean=False, organize=True)
+        confirm_and_run(sweeper, clean=False, organize=True, desc="organize loose files into categories")
     elif choice == "3":
-        run_sweep(sweeper, clean=True, organize=False)
+        confirm_and_run(sweeper, clean=True, organize=False, desc="send duplicates and installers to the Recycle Bin")
     elif choice == "4":
         res = sweeper.execute(clean_clutter=True, organize=True, dry_run=True)
         print(f"\n{Style.PURPLE}✨ Dry Run Completed!{Style.RESET}")
@@ -643,14 +680,41 @@ def render_interactive(sweeper: Sweeper):
         count, msg = sweeper.undo()
         print(f"\n{Style.GREEN}↺ {msg}{Style.RESET}")
     else:
-        print("Cancelled.")
+        print(f" {Style.GRAY}Cancelled. Nothing was changed.{Style.RESET}")
+
+def confirm_and_run(sweeper: Sweeper, clean: bool, organize: bool, desc: str):
+    """Prompt for explicit confirmation before executing modifications."""
+    print(f"\n {Style.YELLOW}⚠️  Are you sure you want to {desc}?{Style.RESET} [y/N]: ", end="", flush=True)
+    try:
+        ans = input().strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        print(f"\n {Style.GRAY}✋ Cancelled.{Style.RESET}")
+        return
+
+    if ans in {"y", "yes"}:
+        run_sweep(sweeper, clean=clean, organize=organize)
+    else:
+        print(f"\n {Style.GRAY}✋ Sweeper cancelled. No files were modified.{Style.RESET}\n")
 
 def run_sweep(sweeper: Sweeper, clean: bool, organize: bool):
-    print(f"\n {Style.PINK}🧹 Sweeping folder...{Style.RESET}", end="", flush=True)
     start_t = time.time()
-    res = sweeper.execute(clean_clutter=clean, organize=organize, dry_run=False)
+    
+    def on_progress(curr, total, name):
+        render_progress_bar(curr, total, name)
+
+    res = sweeper.execute(clean_clutter=clean, organize=organize, dry_run=False, progress_callback=on_progress)
     elapsed = time.time() - start_t
-    print(f"\r {Style.GREEN}{Style.BOLD}✨ Done in {elapsed:.2f}s!{Style.RESET}                     \n")
+
+    # Clean the progress line and play finish animation
+    sys.stdout.write("\r" + " " * 75 + "\r")
+    sys.stdout.flush()
+
+    sparkles = ["✨", "🌟", "🎉", "🧹", "✨"]
+    for s in sparkles:
+        sys.stdout.write(f"\r {Style.GREEN}{Style.BOLD}{s} Sweeping complete!{Style.RESET} ({elapsed:.2f}s)   ")
+        sys.stdout.flush()
+        time.sleep(0.04)
+    print("\n")
 
     if clean:
         print(f"   🗑️  {Style.BOLD}Recycled:{Style.RESET} {res['recycled_count']} items ({Style.GREEN}{format_bytes(res['recycled_bytes'])} freed{Style.RESET})")
