@@ -98,10 +98,10 @@ sweeper --watch
 Instantly clean up a cluttered workspace before screen-sharing or presenting:
 ```bash
 # Sweep all loose files into a timestamped Stash folder in 0.1s
-sweeper "C:\Users\sovon\Desktop" --stash
+sweeper ~/Desktop --stash
 
 # Restore everything back to its exact position after the call
-sweeper "C:\Users\sovon\Desktop" --unstash
+sweeper ~/Desktop --unstash
 ```
 
 ### 6. Storage Heatmap & Space Hogs (`--heatmap`)
