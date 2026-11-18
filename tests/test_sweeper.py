@@ -7,7 +7,7 @@ from pathlib import Path
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from sweeper import Sweeper, DEFAULT_CATEGORIES
+from sweeper import Sweeper, DEFAULT_CATEGORIES, stash_folder, unstash_folder, find_content_duplicates
 
 class TestSweeper(unittest.TestCase):
     def setUp(self):
@@ -93,20 +93,20 @@ class TestSweeper(unittest.TestCase):
         """Verify that target collision renames safely without overwriting."""
         doc_dir = self.test_dir / "Documents"
         doc_dir.mkdir()
-        (doc_dir / "notes.txt").write_text("existing content")
+        (doc_dir / "sample_data.txt").write_text("existing content")
 
         # Create loose file with same name
-        loose = self.test_dir / "notes.txt"
+        loose = self.test_dir / "sample_data.txt"
         loose.write_text("new content")
 
         res = self.sweeper.execute(clean_clutter=False, organize=True)
         self.assertEqual(res["moved_count"], 1)
 
         # Existing should be preserved
-        self.assertEqual((doc_dir / "notes.txt").read_text(), "existing content")
-        # New file should be renamed safely to notes_1.txt
-        self.assertTrue((doc_dir / "notes_1.txt").exists())
-        self.assertEqual((doc_dir / "notes_1.txt").read_text(), "new content")
+        self.assertEqual((doc_dir / "sample_data.txt").read_text(), "existing content")
+        # New file should be renamed safely to sample_data_1.txt
+        self.assertTrue((doc_dir / "sample_data_1.txt").exists())
+        self.assertEqual((doc_dir / "sample_data_1.txt").read_text(), "new content")
 
     def test_by_date_organization(self):
         """Verify that --by-date organizes files into YYYY-MM subfolders."""
@@ -138,6 +138,38 @@ class TestSweeper(unittest.TestCase):
         sweeper = Sweeper(self.test_dir)
         self.assertTrue(sweeper.is_protected(self.test_dir / "keep_this.pdf"))
         self.assertEqual(sweeper.classify(self.test_dir / "scene.blend"), "3D Models")
+
+    def test_stash_and_unstash(self):
+        """Verify presentation stash sweeps items into a Stash folder and restores them."""
+        f1 = self.test_dir / "presentation.pptx"
+        f1.write_text("slides")
+        f2 = self.test_dir / "draft.txt"
+        f2.write_text("notes")
+
+        # Stash
+        moved, msg = stash_folder(self.test_dir)
+        self.assertEqual(moved, 2)
+        self.assertFalse(f1.exists())
+        self.assertFalse(f2.exists())
+
+        # Unstash
+        restored, msg = unstash_folder(self.test_dir)
+        self.assertEqual(restored, 2)
+        self.assertTrue(f1.exists())
+        self.assertTrue(f2.exists())
+
+    def test_content_hash_duplicates(self):
+        """Verify identical content duplicate detection even with different names."""
+        f1 = self.test_dir / "original_photo.png"
+        f1.write_bytes(b"identical byte payload" * 50)
+        f2 = self.test_dir / "totally_different_name.png"
+        f2.write_bytes(b"identical byte payload" * 50)
+
+        sweeper = Sweeper(self.test_dir)
+        dup_sets = find_content_duplicates(sweeper)
+        self.assertEqual(len(dup_sets), 1)
+        self.assertEqual(len(dup_sets[0][1]), 1)
+        self.assertEqual(dup_sets[0][1][0].name, "totally_different_name.png")
 
 if __name__ == "__main__":
     unittest.main()

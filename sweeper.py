@@ -17,6 +17,7 @@ import time
 import shutil
 import platform
 import argparse
+import hashlib
 from pathlib import Path
 from collections import defaultdict
 from typing import Dict, List, Tuple, Optional, Any
@@ -138,6 +139,36 @@ DEFAULT_CATEGORIES = {
         "dir_keywords": ["setup", "install", "kangal", "pro-edition"]
     }
 }
+
+SMART_SUBTAGS = {
+    "Documents": [
+        (["invoice", "receipt", "bill", "tax", "statement", "payment", "salary"], "Invoices & Receipts"),
+        (["resume", "cv", "curriculum", "cover_letter", "biodata", "portfolio"], "Resumes & CVs"),
+        (["assignment", "lecture", "homework", "exam", "syllabus", "notes", "class_note", "guide", "routine"], "Study & Lecture Notes"),
+        (["contract", "agreement", "nda", "terms", "policy", "license"], "Contracts & Legal"),
+        (["book", "novel", "ebook"], "Books")
+    ],
+    "Images": [
+        (["screenshot", "screen_shot", "snip", "capture"], "Screenshots"),
+        (["wallpaper", "background", "1920x", "4k", "1080p"], "Wallpapers"),
+        (["logo", "icon", "vector", "seeklogo", "badge"], "Logos & Icons"),
+        (["diagram", "chart", "flowchart", "mockup", "wireframe"], "Diagrams & Mockups")
+    ],
+    "Media": [
+        (["music", "song", "audio", "track", "album", "remix"], "Music"),
+        (["course", "tutorial", "lesson", "crud", "how to"], "Tutorials & Courses"),
+        (["movie", "film", "episode", "season", "s01", "1080p", "720p"], "Movies & Shows")
+    ]
+}
+
+def get_smart_subtag(cat: str, filename: str) -> Optional[str]:
+    """Smart heuristic semantic sub-tagging based on filename patterns."""
+    name_lower = filename.lower()
+    rules = SMART_SUBTAGS.get(cat, [])
+    for keywords, subfolder in rules:
+        if any(kw in name_lower for kw in keywords):
+            return subfolder
+    return None
 
 PROTECTED_NAMES = {
     "desktop.ini", ".ds_store", "thumbs.db", ".git", ".gitignore",
@@ -623,14 +654,18 @@ class Sweeper:
                     progress_callback(current_op, total_ops, f"Sorting {item.name}")
                 try:
                     target_parent = cat_dir
+                    subtag = get_smart_subtag(cat, item.name) if item.is_file() else None
+                    if subtag:
+                        target_parent = target_parent / subtag
+
                     if by_date and item.is_file():
                         try:
                             ym = time.strftime("%Y-%m", time.localtime(item.stat().st_mtime))
-                            target_parent = cat_dir / ym
-                            target_parent.mkdir(parents=True, exist_ok=True)
+                            target_parent = target_parent / ym
                         except Exception:
                             pass
 
+                    target_parent.mkdir(parents=True, exist_ok=True)
                     final_dest = self.get_safe_destination(target_parent, item.name)
                     sz = self.get_size(item)
                     shutil.move(str(item), str(final_dest))
@@ -906,6 +941,183 @@ def interactive_folder_picker(start_dir: Path) -> Optional[Path]:
         print(f" {Style.GRAY}Unknown option. Type a folder number to enter, or [Enter] to select.{Style.RESET}")
         time.sleep(0.5)
 
+def render_heatmap(sweeper: Sweeper):
+    """Render an aesthetic ASCII storage heatmap and Top 10 Space Hogs."""
+    print(banner())
+    print(f" {Style.BOLD}📊 STORAGE HEATMAP & TOP SPACE HOGS{Style.RESET}")
+    print(f"{Style.DIM} ─────────────────────────────────────────────────────────────{Style.RESET}")
+    print(f" {Style.BOLD}Target:{Style.RESET} {Style.CYAN}{sweeper.target_dir}{Style.RESET}\n")
+
+    items = [f for f in sweeper.target_dir.iterdir() if not sweeper.is_protected(f)]
+    if not items:
+        print(f" {Style.GRAY}Folder has no unorganized or loose items.{Style.RESET}\n")
+        return
+
+    cat_sizes = defaultdict(int)
+    cat_counts = defaultdict(int)
+    item_sizes = []
+
+    for item in items:
+        sz = sweeper.get_size(item)
+        cat = sweeper.classify(item)
+        cat_sizes[cat] += sz
+        cat_counts[cat] += 1
+        item_sizes.append((item, sz))
+
+    total_bytes = sum(cat_sizes.values())
+    if total_bytes == 0:
+        total_bytes = 1
+
+    print(f" {Style.BOLD}📂 Space Distribution by Category:{Style.RESET}")
+    bar_width = 24
+    for cat, sz in sorted(cat_sizes.items(), key=lambda x: x[1], reverse=True):
+        icon = sweeper.categories.get(cat, {}).get("icon", "📁")
+        pct = (sz / total_bytes) * 100
+        filled = int((sz / total_bytes) * bar_width)
+        bar = f"{Style.CYAN}{'█' * filled}{Style.DIM}{'░' * (bar_width - filled)}{Style.RESET}"
+        print(f"   {icon} {cat:<18} [{bar}] {pct:>5.1f}% ({format_bytes(sz)}, {cat_counts[cat]} items)")
+
+    print(f"\n {Style.BOLD}{Style.PINK}🚨 Top 10 Largest Space Hogs:{Style.RESET}")
+    top_hogs = sorted(item_sizes, key=lambda x: x[1], reverse=True)[:10]
+    for idx, (f, sz) in enumerate(top_hogs, 1):
+        icon = "📁" if f.is_dir() else "📄"
+        display_name = (f.name[:38] + "...") if len(f.name) > 40 else f.name
+        print(f"   {Style.YELLOW}{idx:>2}.{Style.RESET} {icon} {display_name:<42} {Style.BOLD}{format_bytes(sz):>9}{Style.RESET}")
+    print()
+
+def chunk_hash(path: Path) -> Optional[str]:
+    """Fast chunk hash: hashes first 512KB and last 512KB for instant speed."""
+    try:
+        h = hashlib.md5()
+        sz = path.stat().st_size
+        with open(path, "rb") as f:
+            chunk1 = f.read(512 * 1024)
+            h.update(chunk1)
+            if sz > 512 * 1024:
+                f.seek(max(0, sz - 512 * 1024))
+                h.update(f.read(512 * 1024))
+        return h.hexdigest()
+    except Exception:
+        return None
+
+def find_content_duplicates(sweeper: Sweeper, recursive: bool = False) -> List[Tuple[Path, List[Path], int]]:
+    """Find byte-for-byte identical files even with completely different names."""
+    print(f"\n {Style.PINK}🔍 Scanning for identical content hashes...{Style.RESET}")
+    size_groups = defaultdict(list)
+    file_iterator = sweeper.target_dir.rglob('*') if recursive else sweeper.target_dir.iterdir()
+    for f in file_iterator:
+        if f.is_file() and not sweeper.is_protected(f):
+            try:
+                sz = f.stat().st_size
+                if sz > 0:
+                    size_groups[sz].append(f)
+            except Exception:
+                pass
+
+    dup_sets = []
+    candidates = {sz: files for sz, files in size_groups.items() if len(files) > 1}
+    for sz, files in candidates.items():
+        hash_groups = defaultdict(list)
+        for f in files:
+            h = chunk_hash(f)
+            if h:
+                hash_groups[h].append(f)
+        for h, matching_files in hash_groups.items():
+            if len(matching_files) > 1:
+                sorted_files = sorted(matching_files, key=lambda x: x.stat().st_mtime)
+                primary = sorted_files[0]
+                duplicates = sorted_files[1:]
+                waste_bytes = sz * len(duplicates)
+                dup_sets.append((primary, duplicates, waste_bytes))
+
+    return dup_sets
+
+def handle_content_duplicates(sweeper: Sweeper):
+    dup_sets = find_content_duplicates(sweeper)
+    if not dup_sets:
+        print(f"\n {Style.GREEN}✓ No byte-for-byte content duplicates found!{Style.RESET}\n")
+        return
+
+    total_wasted = sum(d[2] for d in dup_sets)
+    total_dups = sum(len(d[1]) for d in dup_sets)
+    print(f"\n {Style.BOLD}{Style.PINK}🔍 Identical Content Duplicates Found:{Style.RESET}")
+    print(f"   Found {Style.BOLD}{total_dups}{Style.RESET} identical duplicate files wasting {Style.GREEN}{Style.BOLD}{format_bytes(total_wasted)}{Style.RESET}:\n")
+
+    for idx, (primary, dups, waste) in enumerate(dup_sets[:8], 1):
+        print(f"   {Style.CYAN}Set #{idx}{Style.RESET} ({format_bytes(primary.stat().st_size)} each):")
+        print(f"     {Style.GREEN}✔ Keep Primary:{Style.RESET} {primary.name}")
+        for d in dups:
+            print(f"     {Style.YELLOW}✖ Duplicate   :{Style.RESET} {d.name}")
+
+    if len(dup_sets) > 8:
+        print(f"   {Style.GRAY}...and {len(dup_sets) - 8} more duplicate sets.{Style.RESET}")
+
+    print(f"\n {Style.YELLOW}⚠️  Recycle {total_dups} duplicate files to OS Recycle Bin?{Style.RESET} [y/N]: ", end="", flush=True)
+    try:
+        ans = input().strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        return
+
+    if ans in {"y", "yes"}:
+        recycled = 0
+        for _, dups, _ in dup_sets:
+            for d in dups:
+                if send_to_trash(d):
+                    recycled += 1
+        print(f"\n {Style.GREEN}✨ Recycled {recycled} duplicate files! Freed {format_bytes(total_wasted)}.{Style.RESET}\n")
+    else:
+        print(f"\n {Style.GRAY}Cancelled. Duplicates preserved.{Style.RESET}\n")
+
+def stash_folder(target_dir: Path) -> Tuple[int, str]:
+    """Instantly sweeps all loose desktop files into a Stash folder."""
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    stash_dir = target_dir / f"Stash_{timestamp}"
+    loose_items = [
+        f for f in target_dir.iterdir()
+        if not (f.name.lower() in PROTECTED_NAMES or f.suffix.lower() in PROTECTED_EXTS or f.name.startswith("Stash_"))
+    ]
+
+    if not loose_items:
+        return 0, "No loose items found to stash."
+
+    stash_dir.mkdir(exist_ok=True)
+    moved = 0
+    for item in loose_items:
+        try:
+            shutil.move(str(item), str(stash_dir / item.name))
+            moved += 1
+        except Exception:
+            pass
+
+    return moved, f"Stashed {moved} items into '{stash_dir.name}'! Desktop is now spotless."
+
+def unstash_folder(target_dir: Path) -> Tuple[int, str]:
+    """Finds the most recent Stash folder and restores all files back."""
+    stash_dirs = [d for d in target_dir.iterdir() if d.is_dir() and d.name.startswith("Stash_")]
+    if not stash_dirs:
+        return 0, "No Stash folders found to restore."
+
+    latest_stash = sorted(stash_dirs, key=lambda x: x.name, reverse=True)[0]
+    restored = 0
+    for item in list(latest_stash.iterdir()):
+        try:
+            dest = target_dir / item.name
+            if not dest.exists():
+                shutil.move(str(item), str(dest))
+            else:
+                shutil.move(str(item), str(target_dir / f"{item.stem}_unstashed{item.suffix}"))
+            restored += 1
+        except Exception:
+            pass
+
+    try:
+        if not any(latest_stash.iterdir()):
+            latest_stash.rmdir()
+    except Exception:
+        pass
+
+    return restored, f"Restored {restored} items from '{latest_stash.name}' back to {target_dir.name}."
+
 def render_interactive(sweeper: Sweeper):
     while True:
         print(banner())
@@ -954,7 +1166,11 @@ def render_interactive(sweeper: Sweeper):
         print(f"  {Style.YELLOW}[3]{Style.RESET} Clean Clutter Only (Send duplicates & installers to Recycle Bin)")
         print(f"  {Style.PURPLE}[4]{Style.RESET} Dry Run Preview (Simulate without touching anything)")
         print(f"  {Style.GRAY}[5]{Style.RESET} Undo Last Sweep")
-        print(f"  {Style.BLUE}[c]{Style.RESET} {Style.BOLD}Change Target Folder{Style.RESET} (Type or paste any path)")
+        print(f"  {Style.BLUE}[s]{Style.RESET} 📊 Storage Heatmap & Space Hogs")
+        print(f"  {Style.PINK}[d]{Style.RESET} 🔍 Content Duplicate Finder (Byte-for-byte matches)")
+        print(f"  {Style.YELLOW}[p]{Style.RESET} 💼 Presentation Stash (Instant spotless desktop)")
+        print(f"  {Style.GREEN}[u]{Style.RESET} 📂 Unstash Previous Desktop Stash")
+        print(f"  {Style.CYAN}[c]{Style.RESET} 📁 Change Target Folder (Visual tree browser)")
         print(f"  {Style.GRAY}[q]{Style.RESET} Quit\n")
 
         try:
@@ -963,7 +1179,27 @@ def render_interactive(sweeper: Sweeper):
             print("\nAborted.")
             sys.exit(0)
 
-        if choice in {"c", "change", "cd"}:
+        if choice in {"s", "stats", "heatmap"}:
+            render_heatmap(sweeper)
+            input(f" {Style.DIM}Press Enter to return to menu...{Style.RESET}")
+            continue
+        elif choice in {"d", "dups", "duplicates"}:
+            handle_content_duplicates(sweeper)
+            input(f" {Style.DIM}Press Enter to return to menu...{Style.RESET}")
+            continue
+        elif choice in {"p", "stash"}:
+            moved, msg = stash_folder(sweeper.target_dir)
+            color = Style.GREEN if moved > 0 else Style.YELLOW
+            print(f"\n {color}{msg}{Style.RESET}\n")
+            input(f" {Style.DIM}Press Enter to return to menu...{Style.RESET}")
+            continue
+        elif choice in {"u", "unstash"}:
+            restored, msg = unstash_folder(sweeper.target_dir)
+            color = Style.GREEN if restored > 0 else Style.YELLOW
+            print(f"\n {color}{msg}{Style.RESET}\n")
+            input(f" {Style.DIM}Press Enter to return to menu...{Style.RESET}")
+            continue
+        elif choice in {"c", "change", "cd"}:
             new_p = interactive_folder_picker(sweeper.target_dir)
             if new_p and new_p.exists() and new_p.is_dir():
                 sweeper.set_target(new_p)
@@ -995,7 +1231,7 @@ def render_interactive(sweeper: Sweeper):
             print(f" {Style.GRAY}Bye! Keep it clean. 🧹✨{Style.RESET}")
             break
         else:
-            print(f" {Style.GRAY}Please choose 1-5, 'c' to change folder, or 'q' to quit.{Style.RESET}\n")
+            print(f" {Style.GRAY}Please choose an option from the menu, or 'q' to quit.{Style.RESET}\n")
             time.sleep(0.8)
             continue
 
@@ -1116,6 +1352,10 @@ def main():
     parser.add_argument("--organize-only", action="store_true", help="Only categorize files without pruning")
     parser.add_argument("--watch", action="store_true", help="Run in background watch mode to auto-sweep new downloads")
     parser.add_argument("--by-date", action="store_true", help="Organize files into year-month subfolders (e.g. Images/2026-11/)")
+    parser.add_argument("--heatmap", "--stats", action="store_true", help="Display visual storage heatmap and Top 10 Space Hogs")
+    parser.add_argument("--find-duplicates", action="store_true", help="Find identical duplicate files by content hash")
+    parser.add_argument("--stash", action="store_true", help="Instantly sweep all loose desktop files into a neat Stash folder")
+    parser.add_argument("--unstash", action="store_true", help="Restore files from the most recent Stash folder")
     parser.add_argument("--init-config", action="store_true", help="Generate a .sweeper.json configuration template")
     parser.add_argument("--install-context-menu", action="store_true", help="Add 'Sweep with Sweeper' to Windows right-click menu")
     parser.add_argument("--uninstall-context-menu", action="store_true", help="Remove 'Sweep with Sweeper' from Windows right-click menu")
@@ -1143,6 +1383,19 @@ def main():
     else:
         target_dir = Path.home() / "Downloads"
 
+    # Stash & Unstash
+    if args.stash:
+        moved, msg = stash_folder(target_dir)
+        color = Style.GREEN if moved > 0 else Style.YELLOW
+        print(f"{color}{msg}{Style.RESET}")
+        sys.exit(0)
+
+    if args.unstash:
+        restored, msg = unstash_folder(target_dir)
+        color = Style.GREEN if restored > 0 else Style.YELLOW
+        print(f"{color}{msg}{Style.RESET}")
+        sys.exit(0)
+
     # Init config template
     if args.init_config:
         cfg = init_config(target_dir)
@@ -1154,6 +1407,15 @@ def main():
         sys.exit(1)
 
     sweeper = Sweeper(target_dir)
+
+    # Heatmap & Duplicates
+    if args.heatmap:
+        render_heatmap(sweeper)
+        sys.exit(0)
+
+    if args.find_duplicates:
+        handle_content_duplicates(sweeper)
+        sys.exit(0)
 
     # Watch Mode
     if args.watch:
