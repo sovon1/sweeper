@@ -54,6 +54,7 @@ class Style:
 
     # Aesthetic Pastel Palette
     CYAN    = "\033[38;2;56;189;248m"    # Pastel Sky Blue
+    BLUE    = "\033[38;2;96;165;250m"    # Soft Blue
     PINK    = "\033[38;2;244;114;182m"   # Rose Pink
     GREEN   = "\033[38;2;52;211;153m"    # Mint / Emerald
     YELLOW  = "\033[38;2;251;191;36m"    # Warm Amber
@@ -135,6 +136,8 @@ PROTECTED_NAMES = {
     ".sweeper_history.json", "sweeper.py", "run.ps1", "run.sh"
 }
 
+PROTECTED_EXTS = {".lnk", ".url"}
+
 # ==============================================================================
 # OS Native Trash / Recycle Bin (Cross-Platform)
 # ==============================================================================
@@ -212,14 +215,21 @@ def send_to_trash(path: Path) -> bool:
 
 class Sweeper:
     def __init__(self, target_dir: Path):
+        self.set_target(target_dir)
+
+    def set_target(self, target_dir: Path):
+        """Set or change the target folder and reset cached stats."""
         self.target_dir = target_dir.resolve()
         self.history_file = self.target_dir / ".sweeper_history.json"
         self.category_names = set(DEFAULT_CATEGORIES.keys()) | {"Other"}
+        self._size_cache = {}
 
     def is_protected(self, path: Path) -> bool:
         """Check if an item is protected from moves or cleaning."""
         name = path.name.lower()
         if name in PROTECTED_NAMES:
+            return True
+        if path.suffix.lower() in PROTECTED_EXTS:
             return True
         if name in {c.lower() for c in self.category_names}:
             return True
@@ -228,11 +238,31 @@ class Sweeper:
         return False
 
     def get_size(self, path: Path) -> int:
-        """Recursively calculate file or directory size in bytes."""
+        """Fast size calculation with caching (avoids freezing on deep project trees)."""
+        path_str = str(path)
+        if path_str in self._size_cache:
+            return self._size_cache[path_str]
+
         try:
             if path.is_file():
-                return path.stat().st_size
-            return sum(f.stat().st_size for f in path.rglob('*') if f.is_file())
+                sz = path.stat().st_size
+                self._size_cache[path_str] = sz
+                return sz
+
+            # Fast non-blocking directory size check
+            total = 0
+            count = 0
+            for entry in os.scandir(path):
+                try:
+                    if entry.is_file(follow_symlinks=False):
+                        total += entry.stat(follow_symlinks=False).st_size
+                    count += 1
+                    if count > 250:  # Fast preview without freezing UI
+                        break
+                except (PermissionError, FileNotFoundError):
+                    pass
+            self._size_cache[path_str] = total
+            return total
         except (PermissionError, FileNotFoundError):
             return 0
 
@@ -584,16 +614,33 @@ def format_bytes(b: int) -> str:
     else:
         return f"{b / (1024*1024*1024):.2f} GB"
 
-def animate_scan():
-    """Cute spinning animation while scanning."""
+def scan_with_feedback(sweeper: Sweeper) -> Tuple[List[Path], int]:
+    """Live animated scanning with visible progress across folder items."""
     frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    for i in range(10):
+    target = sweeper.target_dir
+    try:
+        entries = [f for f in target.iterdir() if not sweeper.is_protected(f)]
+    except Exception as e:
+        print(f" {Style.YELLOW}Error accessing directory: {e}{Style.RESET}")
+        return [], 0
+
+    total_items = len(entries)
+    if total_items == 0:
+        return [], 0
+
+    for i, item in enumerate(entries):
         frame = frames[i % len(frames)]
-        sys.stdout.write(f"\r {Style.PINK}{frame}{Style.RESET} {Style.CYAN}Scanning folder structure...{Style.RESET} 🧹")
+        short_name = (item.name[:25] + "...") if len(item.name) > 28 else item.name
+        sys.stdout.write(f"\r {Style.PINK}{frame}{Style.RESET} {Style.CYAN}Analyzing item {i+1}/{total_items}:{Style.RESET} {Style.GRAY}{short_name:<30}{Style.RESET}")
         sys.stdout.flush()
-        time.sleep(0.02)
-    sys.stdout.write("\r" + " " * 45 + "\r")
+        sweeper.get_size(item)
+        if total_items < 100:
+            time.sleep(0.005)
+
+    sys.stdout.write("\r" + " " * 65 + "\r")
     sys.stdout.flush()
+    total_size = sum(sweeper.get_size(f) for f in entries)
+    return entries, total_size
 
 def render_progress_bar(current: int, total: int, item_name: str = "", width: int = 24):
     """Smooth animated progress bar with current item preview."""
@@ -604,83 +651,109 @@ def render_progress_bar(current: int, total: int, item_name: str = "", width: in
     name_truncated = (item_name[:22] + "...") if len(item_name) > 25 else item_name
     sys.stdout.write(f"\r {Style.PINK}🧹 Sweeping{Style.RESET} [{bar}] {pct_str:>4} ({current}/{total}) {Style.GRAY}{name_truncated:<25}{Style.RESET}")
     sys.stdout.flush()
-    # Micro sleep for visual smoothness when running very fast
     time.sleep(0.01)
 
 def render_interactive(sweeper: Sweeper):
-    print(banner())
-    target = sweeper.target_dir
-    print(f" {Style.BOLD}📂 Target Folder:{Style.RESET} {Style.CYAN}{target}{Style.RESET}\n")
+    while True:
+        print(banner())
+        target = sweeper.target_dir
+        print(f" {Style.BOLD}📂 Target Folder:{Style.RESET} {Style.CYAN}{target}{Style.RESET}\n")
 
-    animate_scan()
+        # Live scanning feedback
+        items, total_size = scan_with_feedback(sweeper)
 
-    # Fast scan
-    items = [f for f in target.iterdir() if not sweeper.is_protected(f)]
-    total_size = sum(sweeper.get_size(f) for f in items)
+        print(f" {Style.BOLD}📊 Current Status:{Style.RESET}")
+        print(f"   • Total loose items: {Style.BOLD}{len(items)}{Style.RESET}")
+        print(f"   • Total folder size: {Style.BOLD}{format_bytes(total_size)}{Style.RESET}\n")
 
-    print(f" {Style.BOLD}📊 Current Status:{Style.RESET}")
-    print(f"   • Total loose items: {Style.BOLD}{len(items)}{Style.RESET}")
-    print(f"   • Total folder size: {Style.BOLD}{format_bytes(total_size)}{Style.RESET}\n")
+        # Clutter scan
+        clutter_items, clutter_bytes = sweeper.scan_clutter()
+        clutter_paths = {c["path"] for c in clutter_items}
+        plan = sweeper.plan_organization(exclude_paths=clutter_paths)
 
-    # Clutter scan
-    clutter_items, clutter_bytes = sweeper.scan_clutter()
-    clutter_paths = {c["path"] for c in clutter_items}
-    plan = sweeper.plan_organization(exclude_paths=clutter_paths)
+        # Breakdown display
+        print(f" {Style.BOLD}{Style.PINK}🧹 Clutter & Duplicates Detected:{Style.RESET}")
+        if clutter_items:
+            by_type = defaultdict(lambda: {"count": 0, "size": 0})
+            for c in clutter_items:
+                by_type[c["type"]]["count"] += 1
+                by_type[c["type"]]["size"] += c["size"]
+            for t, data in by_type.items():
+                print(f"   {Style.YELLOW}•{Style.RESET} {t:<22}: {Style.BOLD}{data['count']:>3}{Style.RESET} items ({format_bytes(data['size'])})")
+            print(f"   {Style.GREEN}➜ Total reclaimable:{Style.RESET} {Style.BOLD}{format_bytes(clutter_bytes)}{Style.RESET} (safely sent to OS Recycle Bin)\n")
+        else:
+            print(f"   {Style.GRAY}No redundant clutter or duplicate iterations found.{Style.RESET}\n")
 
-    # Breakdown display
-    print(f" {Style.BOLD}{Style.PINK}🧹 Clutter & Duplicates Detected:{Style.RESET}")
-    if clutter_items:
-        by_type = defaultdict(lambda: {"count": 0, "size": 0})
-        for c in clutter_items:
-            by_type[c["type"]]["count"] += 1
-            by_type[c["type"]]["size"] += c["size"]
-        for t, data in by_type.items():
-            print(f"   {Style.YELLOW}•{Style.RESET} {t:<22}: {Style.BOLD}{data['count']:>3}{Style.RESET} items ({format_bytes(data['size'])})")
-        print(f"   {Style.GREEN}➜ Total reclaimable:{Style.RESET} {Style.BOLD}{format_bytes(clutter_bytes)}{Style.RESET} (safely sent to OS Recycle Bin)\n")
-    else:
-        print(f"   {Style.GRAY}No redundant clutter or duplicate iterations found.{Style.RESET}\n")
+        print(f" {Style.BOLD}{Style.CYAN}📁 Categorization Plan:{Style.RESET}")
+        if plan:
+            for cat, file_list in sorted(plan.items(), key=lambda x: len(x[1]), reverse=True):
+                icon = DEFAULT_CATEGORIES.get(cat, {}).get("icon", "📁")
+                cat_sz = sum(sweeper.get_size(f) for f in file_list)
+                print(f"   {icon} {cat:<18}: {Style.BOLD}{len(file_list):>3}{Style.RESET} items ({format_bytes(cat_sz)})")
+        else:
+            print(f"   {Style.GRAY}No unorganized loose files found.{Style.RESET}")
+        print()
 
-    print(f" {Style.BOLD}{Style.CYAN}📁 Categorization Plan:{Style.RESET}")
-    if plan:
-        for cat, file_list in sorted(plan.items(), key=lambda x: len(x[1]), reverse=True):
-            icon = DEFAULT_CATEGORIES.get(cat, {}).get("icon", "📁")
-            cat_sz = sum(sweeper.get_size(f) for f in file_list)
-            print(f"   {icon} {cat:<18}: {Style.BOLD}{len(file_list):>3}{Style.RESET} items ({format_bytes(cat_sz)})")
-    else:
-        print(f"   {Style.GRAY}No unorganized loose files found.{Style.RESET}")
-    print()
+        print(f"{Style.DIM}─────────────────────────────────────────────────────────────{Style.RESET}")
+        print(f" {Style.BOLD}Choose an action:{Style.RESET}")
+        print(f"  {Style.GREEN}[1]{Style.RESET} {Style.BOLD}Clean Clutter & Organize{Style.RESET} {Style.PINK}(Recommended){Style.RESET}")
+        print(f"  {Style.CYAN}[2]{Style.RESET} Organize Only (Keep all files, sort into categories)")
+        print(f"  {Style.YELLOW}[3]{Style.RESET} Clean Clutter Only (Send duplicates & installers to Recycle Bin)")
+        print(f"  {Style.PURPLE}[4]{Style.RESET} Dry Run Preview (Simulate without touching anything)")
+        print(f"  {Style.GRAY}[5]{Style.RESET} Undo Last Sweep")
+        print(f"  {Style.BLUE}[c]{Style.RESET} {Style.BOLD}Change Target Folder{Style.RESET} (Type or paste any path)")
+        print(f"  {Style.GRAY}[q]{Style.RESET} Quit\n")
 
-    print(f"{Style.DIM}─────────────────────────────────────────────────────────────{Style.RESET}")
-    print(f" {Style.BOLD}Choose an action:{Style.RESET}")
-    print(f"  {Style.GREEN}[1]{Style.RESET} {Style.BOLD}Clean Clutter & Organize{Style.RESET} {Style.PINK}(Recommended){Style.RESET}")
-    print(f"  {Style.CYAN}[2]{Style.RESET} Organize Only (Keep all files, sort into categories)")
-    print(f"  {Style.YELLOW}[3]{Style.RESET} Clean Clutter Only (Send duplicates & installers to Recycle Bin)")
-    print(f"  {Style.PURPLE}[4]{Style.RESET} Dry Run Preview (Simulate without touching anything)")
-    print(f"  {Style.GRAY}[5]{Style.RESET} Undo Last Sweep")
-    print(f"  {Style.GRAY}[q]{Style.RESET} Quit\n")
+        try:
+            choice = input(f" {Style.BOLD}{Style.CYAN}sweeper ❯{Style.RESET} ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print("\nAborted.")
+            sys.exit(0)
 
-    try:
-        choice = input(f" {Style.BOLD}{Style.CYAN}sweeper ❯{Style.RESET} ").strip().lower()
-    except (KeyboardInterrupt, EOFError):
-        print("\nAborted.")
-        sys.exit(0)
-
-    if choice in {"1", "clean", "organize"}:
-        confirm_and_run(sweeper, clean=True, organize=True, desc="clean clutter and organize loose files")
-    elif choice == "2":
-        confirm_and_run(sweeper, clean=False, organize=True, desc="organize loose files into categories")
-    elif choice == "3":
-        confirm_and_run(sweeper, clean=True, organize=False, desc="send duplicates and installers to the Recycle Bin")
-    elif choice == "4":
-        res = sweeper.execute(clean_clutter=True, organize=True, dry_run=True)
-        print(f"\n{Style.PURPLE}✨ Dry Run Completed!{Style.RESET}")
-        print(f"   Would recycle: {res['clutter_count']} items ({format_bytes(res['clutter_bytes'])})")
-        print(f"   Would organize into {len(res['organized_counts'])} category folders.")
-    elif choice == "5":
-        count, msg = sweeper.undo()
-        print(f"\n{Style.GREEN}↺ {msg}{Style.RESET}")
-    else:
-        print(f" {Style.GRAY}Cancelled. Nothing was changed.{Style.RESET}")
+        if choice in {"c", "change", "cd"}:
+            print(f"\n {Style.CYAN}📂 Enter or paste target folder path:{Style.RESET}")
+            try:
+                raw_path = input(f" {Style.BOLD}path ❯{Style.RESET} ").strip().strip('"').strip("'")
+            except (KeyboardInterrupt, EOFError):
+                break
+            if raw_path:
+                new_p = Path(raw_path).expanduser()
+                if new_p.exists() and new_p.is_dir():
+                    sweeper.set_target(new_p)
+                    print(f"\n {Style.GREEN}✓ Switched target folder to: {sweeper.target_dir}{Style.RESET}")
+                    time.sleep(0.6)
+                else:
+                    print(f"\n {Style.YELLOW}Folder not found: {raw_path}{Style.RESET}")
+                    time.sleep(1.0)
+            continue
+        elif choice in {"1", "clean", "organize"}:
+            confirm_and_run(sweeper, clean=True, organize=True, desc="clean clutter and organize loose files")
+            break
+        elif choice == "2":
+            confirm_and_run(sweeper, clean=False, organize=True, desc="organize loose files into categories")
+            break
+        elif choice == "3":
+            confirm_and_run(sweeper, clean=True, organize=False, desc="send duplicates and installers to the Recycle Bin")
+            break
+        elif choice == "4":
+            res = sweeper.execute(clean_clutter=True, organize=True, dry_run=True)
+            print(f"\n{Style.PURPLE}✨ Dry Run Completed!{Style.RESET}")
+            print(f"   Would recycle: {res['clutter_count']} items ({format_bytes(res['clutter_bytes'])})")
+            print(f"   Would organize into {len(res['organized_counts'])} category folders.\n")
+            input(f" {Style.DIM}Press Enter to return to menu...{Style.RESET}")
+            continue
+        elif choice == "5":
+            count, msg = sweeper.undo()
+            print(f"\n{Style.GREEN}↺ {msg}{Style.RESET}\n")
+            input(f" {Style.DIM}Press Enter to return to menu...{Style.RESET}")
+            continue
+        elif choice in {"q", "quit", "exit"}:
+            print(f" {Style.GRAY}Bye! Keep it clean. 🧹✨{Style.RESET}")
+            break
+        else:
+            print(f" {Style.GRAY}Please choose 1-5, 'c' to change folder, or 'q' to quit.{Style.RESET}\n")
+            time.sleep(0.8)
+            continue
 
 def confirm_and_run(sweeper: Sweeper, clean: bool, organize: bool, desc: str):
     """Prompt for explicit confirmation before executing modifications."""
