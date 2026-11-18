@@ -775,6 +775,137 @@ def render_progress_bar(current: int, total: int, item_name: str = "", width: in
     sys.stdout.flush()
     time.sleep(0.01)
 
+def pick_folder_gui() -> Optional[Path]:
+    """Launch native OS folder picker dialog."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        selected = filedialog.askdirectory(title="🧹 Sweeper: Select Target Folder")
+        root.destroy()
+        if selected:
+            return Path(selected)
+    except Exception:
+        pass
+    return None
+
+def interactive_folder_picker(start_dir: Path) -> Optional[Path]:
+    """Visual in-terminal folder navigator for intuitive, satisfying browsing."""
+    curr = start_dir.resolve()
+    home = Path.home()
+
+    quick_jumps = {
+        "d": ("Downloads", home / "Downloads"),
+        "k": ("Desktop", home / "Desktop"),
+        "m": ("Documents", home / "Documents"),
+        "p": ("Pictures", home / "Pictures"),
+        "v": ("Videos", home / "Videos")
+    }
+
+    while True:
+        print(f"\n{Style.BOLD}{Style.CYAN} 📂 INTERACTIVE FOLDER BROWSER{Style.RESET}")
+        print(f"{Style.DIM} ─────────────────────────────────────────────────────────────{Style.RESET}")
+        print(f" {Style.BOLD}Current Location:{Style.RESET} {Style.GREEN}{curr}{Style.RESET}\n")
+
+        # Quick Jumps
+        jumps_rendered = [
+            f"{Style.CYAN}[{key}]{Style.RESET} {name}"
+            for key, (name, p) in quick_jumps.items() if p.exists()
+        ]
+        print(f" {Style.BOLD}Quick Jumps:{Style.RESET} {'  '.join(jumps_rendered)}\n")
+
+        # List subdirectories inside current folder
+        subdirs = []
+        try:
+            for item in sorted(curr.iterdir(), key=lambda x: x.name.lower()):
+                if item.is_dir() and not item.name.startswith("."):
+                    subdirs.append(item)
+        except (PermissionError, FileNotFoundError) as e:
+            print(f" {Style.YELLOW}⚠️  Could not read directory: {e}{Style.RESET}")
+
+        print(f" {Style.BOLD}Folders inside here:{Style.RESET}")
+        if subdirs:
+            display_dirs = subdirs[:15]
+            for idx, d in enumerate(display_dirs, 1):
+                print(f"  {Style.PINK}[{idx:>2}]{Style.RESET} 📁 {d.name}/")
+            if len(subdirs) > 15:
+                print(f"   {Style.GRAY}...and {len(subdirs) - 15} more folders{Style.RESET}")
+        else:
+            print(f"   {Style.GRAY}(No subfolders inside here){Style.RESET}")
+
+        if curr.parent != curr:
+            print(f"  {Style.YELLOW}[..]{Style.RESET} ⬆️  Go up to parent ({curr.parent.name or str(curr.parent)})")
+
+        print(f"\n{Style.DIM} ─────────────────────────────────────────────────────────────{Style.RESET}")
+        print(f"  {Style.GREEN}[Enter]{Style.RESET} {Style.BOLD}Select this folder ({curr.name or str(curr)}){Style.RESET}")
+        print(f"  {Style.BLUE}[b]{Style.RESET} 🗂️  Open Native File Explorer Dialog")
+        print(f"  {Style.CYAN}[t]{Style.RESET} ✍️  Type or paste a custom path")
+        print(f"  {Style.GRAY}[q]{Style.RESET} ✖️  Cancel & return\n")
+
+        try:
+            nav = input(f" {Style.BOLD}{Style.CYAN}browse ❯{Style.RESET} ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            return None
+
+        # Select current folder
+        if nav == "" or nav == "select":
+            return curr
+
+        # Quick jumps
+        if nav in quick_jumps:
+            dest = quick_jumps[nav][1]
+            if dest.exists() and dest.is_dir():
+                curr = dest
+            continue
+
+        # Parent folder
+        if nav == "..":
+            if curr.parent != curr:
+                curr = curr.parent
+            continue
+
+        # Native GUI picker
+        if nav == "b":
+            chosen = pick_folder_gui()
+            if chosen and chosen.exists() and chosen.is_dir():
+                return chosen
+            continue
+
+        # Text path input
+        if nav == "t":
+            print(f"\n {Style.CYAN}📂 Enter or paste folder path:{Style.RESET}")
+            try:
+                raw_t = input(f" {Style.BOLD}path ❯{Style.RESET} ").strip().strip('"').strip("'")
+            except (KeyboardInterrupt, EOFError):
+                continue
+            if raw_t:
+                cand = Path(raw_t).expanduser()
+                if cand.exists() and cand.is_dir():
+                    curr = cand
+                else:
+                    print(f" {Style.YELLOW}Folder not found: {raw_t}{Style.RESET}")
+                    time.sleep(1.0)
+            continue
+
+        # Cancel
+        if nav in {"q", "quit", "cancel"}:
+            return None
+
+        # Number selection to enter folder
+        if nav.isdigit():
+            idx = int(nav)
+            if 1 <= idx <= len(subdirs):
+                curr = subdirs[idx - 1]
+            else:
+                print(f" {Style.YELLOW}Invalid folder number: {idx}{Style.RESET}")
+                time.sleep(0.5)
+            continue
+
+        print(f" {Style.GRAY}Unknown option. Type a folder number to enter, or [Enter] to select.{Style.RESET}")
+        time.sleep(0.5)
+
 def render_interactive(sweeper: Sweeper):
     while True:
         print(banner())
@@ -833,20 +964,11 @@ def render_interactive(sweeper: Sweeper):
             sys.exit(0)
 
         if choice in {"c", "change", "cd"}:
-            print(f"\n {Style.CYAN}📂 Enter or paste target folder path:{Style.RESET}")
-            try:
-                raw_path = input(f" {Style.BOLD}path ❯{Style.RESET} ").strip().strip('"').strip("'")
-            except (KeyboardInterrupt, EOFError):
-                break
-            if raw_path:
-                new_p = Path(raw_path).expanduser()
-                if new_p.exists() and new_p.is_dir():
-                    sweeper.set_target(new_p)
-                    print(f"\n {Style.GREEN}✓ Switched target folder to: {sweeper.target_dir}{Style.RESET}")
-                    time.sleep(0.6)
-                else:
-                    print(f"\n {Style.YELLOW}Folder not found: {raw_path}{Style.RESET}")
-                    time.sleep(1.0)
+            new_p = interactive_folder_picker(sweeper.target_dir)
+            if new_p and new_p.exists() and new_p.is_dir():
+                sweeper.set_target(new_p)
+                print(f"\n {Style.GREEN}✓ Switched target folder to: {sweeper.target_dir}{Style.RESET}")
+                time.sleep(0.5)
             continue
         elif choice in {"1", "clean", "organize"}:
             confirm_and_run(sweeper, clean=True, organize=True, desc="clean clutter and organize loose files")
