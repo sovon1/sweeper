@@ -25,6 +25,10 @@ Categorize loose files, prune duplicate downloads, stash messy desktops for meet
 
 </div>
 
+<p align="center">
+  <img src="assets/demo.gif" alt="sweeper in action" width="760" />
+</p>
+
 ---
 
 ## Quickstart
@@ -72,6 +76,10 @@ sweeper
 ### 1. Interactive Sweep & Visual Folder Tree
 Run `sweeper` without flags to launch the interactive terminal interface. Scan any directory, preview the categorization plan, inspect detected clutter, or press `c` to launch the **built-in visual directory navigator** with 1-key jumps (`d` for Downloads, `k` for Desktop, `m` for Documents) and native OS dialog integration (`b`).
 
+<p align="center">
+  <img src="assets/interactive_tree.png" alt="Visual Folder Navigator" width="760" />
+</p>
+
 ### 2. Media Intelligence Engine
 Separates video and audio into dedicated category trees and applies pattern recognition:
 * **Movies & Shows:** Releases tagged with resolution or encode identifiers (`1080p`, `4K`, `WEB-DL`, `HDR`, `x265`, `S01E02`) ➜ `Media/Videos/Movies & Shows/`
@@ -109,6 +117,10 @@ Visualizes disk space distribution by category with an ASCII bar chart and ranks
 ```bash
 sweeper --heatmap
 ```
+
+<p align="center">
+  <img src="assets/storage_heatmap.png" alt="Storage Heatmap and Space Hogs" width="760" />
+</p>
 
 ### 7. Content-Hash Duplicate Detection (`--find-duplicates`)
 Identifies identical duplicate files across your folder even when they have completely different filenames using fast two-tier chunk hashing (MD5 on header and footer chunks).
